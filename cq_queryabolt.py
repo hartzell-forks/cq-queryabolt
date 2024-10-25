@@ -6,6 +6,7 @@ from typing import Union, Optional
 
 DEFAULT_CLEARANCE = 0.0
 DEFAULT_HEAD_DIAMETER_CLEARANCE = 0.1
+DEFAULT_HEAD_THICKNESS_CLEARANCE = 0.2
 DEFAULT_NUT_KIND = "hexagon"
 DEFAULT_BOLT_KIND = "headless"
 
@@ -39,6 +40,65 @@ def _nutSideSketch(options, length, kind = DEFAULT_NUT_KIND):
             .clean()
     )
     return s
+
+def _boltSlotHeadSketch(
+    bolt: FastenerSpec,
+    length: Union[int, float],
+    clearance: Union[int, float]):
+    """Generate a sketch of the slot along which the bolt head will slide.
+
+    Args:
+       bolt (str): name of the bolt (e.g. '"M3"')
+       length (float): length of the slot (from the center of the bolt when at the ends).
+       clearance (float): additional clearance around periphery of bolt head.
+    """
+    data = nutData(bolt, "hexagon")
+    w = data["width"] + clearance
+    l = length + clearance
+    e = -w * math.sqrt(3) / 6
+    s = (
+        cq.Sketch()
+        .polygon(
+            [
+                (w / 2, -e + l / 2),
+                (0, _hexInscribedCircle(w) / 2 + l / 2),
+                (-w / 2, -e + l / 2),
+                (-w / 2, e - l / 2),
+                (0, -_hexInscribedCircle(w) / 2 - l / 2),
+                (w / 2, e - l / 2),
+            ]
+        )
+        .clean()
+    )
+    return s
+
+
+def _boltSlotShaftSketch(
+    bolt: FastenerSpec,
+    length: Union[int, float],
+    clearance: Union[int, float]
+):
+    """Generate a sketch of the slot along which the bolt shaft will slide.
+
+    Args:
+       bolt (str): name of the bolt (e.g. '"M3"')
+       length (float): length of the slot (from the center of the bolt when at the ends).
+       clearance (float): additional clearance around periphery of bolt shaft.
+    """
+    data = boltData(bolt, "hex_head")
+    d = data["diameter"] + clearance
+    l = length + clearance
+    s = (
+        cq.Sketch()
+        .rect(d, l)
+        .push([cq.Location((0, -l / 2))])
+        .circle(d / 2)
+        .push([cq.Location((0, l / 2))])
+        .circle(d / 2)
+        .clean()
+    )
+    return s
+
 
 def nutData(options = None, kind = DEFAULT_NUT_KIND):
     if options is None:
@@ -123,3 +183,32 @@ class WorkplaneMixin:
         """
         data = boltData(bolt, "countersunk")
         return self.cskHole(data["diameter"] + clearance, data["head_diameter"], cskAngle = 90, depth = depth)
+
+    def boltSlot(
+        self,
+        bolt: FastenerSpec,
+        length: Union[int, float],
+        clearance: Optional[float]=DEFAULT_CLEARANCE,
+        headClearance: Optional[float]=DEFAULT_HEAD_THICKNESS_CLEARANCE
+    ):
+        """Generate a slot along which a bolt can slide.
+
+        Args:
+           bolt (str): name of the bolt (e.g. '"M3"')
+           length (float): length of the slot (from the center of the bolt when at the ends).
+           clearance (float): additional clearance around periphery of bolt shaft.
+           headClearance (float): additional clearance above/below of bolt head.
+        """
+        data = boltData(bolt, "hex_head")
+        headThickness = data["head_length"] + headClearance
+
+        self = (
+            self.tag("boltSlot")
+            .placeSketch(_boltSlotHeadSketch(bolt, length, clearance))
+            .cutBlind(-headThickness)
+            .workplaneFromTagged("boltSlot")
+            .placeSketch(_boltSlotShaftSketch(bolt, length, clearance))
+            .cutThruAll()
+        )
+
+        return self
